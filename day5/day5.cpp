@@ -11,6 +11,17 @@ struct mapping {
   long dest_from;
   long source_from;
   long size;
+
+  bool includes(long seed) {
+    return seed >= source_from && seed <= source_from + size - 1;
+  }
+
+  long map(long seed) {
+    if (!includes(seed)) {
+      return seed;
+    }
+    return (seed - source_from) + dest_from;
+  }
 };
 
 std::vector<long> parse_nums(std::string_view s) {
@@ -129,34 +140,10 @@ bool check_if_can_reached_from_previous(
   return true;
 }
 
-void trim_maps(std::vector<std::vector<mapping>> &maps, long seed, long end) {
-  for (auto it = maps.begin(); it != maps.end();) {
-    std::vector<mapping> &map_vec = *it;
-    for (auto it = map_vec.begin(); it != map_vec.end();) {
-      mapping &m = *it;
-      // std::cout << min_loc << " " << m.dest_from << std::endl;
-      // If can reach without going through previous maps
-      bool can_straight_reach_later = seed >= m.source_from ||
-                                      end >= m.source_from ||
-                                      seed <= m.source_from + m.size;
-      if (!can_straight_reach_later) {
-        // Check if can be reached from previous maps
-        if (!check_if_can_reached_from_previous(maps, map_vec, m)) {
-          std::cout << "trimmed" << std::endl;
-          it = map_vec.erase(it);
-          continue;
-        }
-      }
-      ++it;
-    }
-    if (map_vec.size() == 0) {
-      std::cout << "trimmed" << std::endl;
-      it = maps.erase(it);
-    } else {
-      ++it;
-    }
-  }
-}
+struct range {
+  long from;
+  long to;
+};
 
 void part2() {
   std::ifstream input("input.txt");
@@ -166,18 +153,20 @@ void part2() {
     return;
   }
 
-  std::vector<std::vector<mapping>> initial_maps;
+  std::vector<std::vector<mapping>> maps;
 
   std::string line;
 
-  // Read seeds
+  std::vector<range> input_ranges;
+
+  // Read seed ranges
   std::getline(input, line);
   int colon_pos = line.find(":");
   std::vector<long> seeds =
       parse_nums(std::string_view(line.data() + colon_pos + 2));
-  // for (long seed : seeds) {
-  //   std::cout << seed << std::endl;
-  // }
+  for (int i = 0; i < seeds.size(); i += 2) {
+    input_ranges.push_back({seeds[i], seeds[i] + seeds[i + 1] - 1});
+  }
   std::getline(input, line);
 
   // Now fetch maps
@@ -185,7 +174,7 @@ void part2() {
   while (std::getline(input, line)) {
     if (!header_detected) {
       header_detected = true;
-      initial_maps.push_back(std::vector<mapping>());
+      maps.push_back(std::vector<mapping>());
       continue;
     }
 
@@ -194,53 +183,78 @@ void part2() {
       continue;
     }
 
-    std::vector<mapping> &map_vec = initial_maps[initial_maps.size() - 1];
+    std::vector<mapping> &map_vec = maps[maps.size() - 1];
 
     std::vector<long> nums = parse_nums(std::string_view(line));
     map_vec.push_back({nums[0], nums[1], nums[2]});
   }
 
-  // for (std::vector<mapping> map_vec : maps) {
-  //   std::cout << "start" << std::endl;
-  //   for (mapping m : map_vec) {
-  //     std::cout << m.dest_from << " " << m.source_from << " " << m.size
-  //               << std::endl;
-  //   }
-  //   std::cout << "end" << std::endl;
-  // }
+  // For each layer, slice input into pieces and map them to next layer
+  for (std::vector<mapping> &map_vec : maps) {
+    for (mapping m : map_vec) {
+      std::vector<range> sliced_ranges;
 
-  // Mapping seed to loc
-  // std::vector<long> end_locs;
-  long min_loc = -1;
-  for (int i = 0; i < seeds.size(); i += 2) {
-    // We will trim this copy of maps
-    std::vector<std::vector<mapping>> maps = initial_maps;
-
-    long end = seeds[i] + seeds[i + 1] - 1;
-    for (long seed = seeds[i]; seed <= end; ++seed) {
-      if (seed % 1000000 == 0) {
-        std::printf("Progress: %.2f%% | current min: %ld | seed: %ld\n",
-                    (double)(seed - seeds[i]) / seeds[i + 1] * 100, min_loc,
-                    seed);
-        trim_maps(maps, seed, end);
-      }
-      long current = seed;
-      for (std::vector<mapping> map_vec : maps) {
-        for (mapping m : map_vec) {
-          if (current >= m.source_from && current <= m.source_from + m.size) {
-            current = (current - m.source_from) + m.dest_from;
-            break;
+      for (range &r : input_ranges) {
+        long source_from = m.source_from, source_to = m.source_from + m.size;
+        // If outside the map
+        if ((r.from < source_from && r.to < source_from) ||
+            (r.from > source_from && r.to > source_from)) {
+          sliced_ranges.push_back(r);
+          continue;
+        }
+        // If inside the map
+        if (r.from >= source_from && r.to <= source_to) {
+          sliced_ranges.push_back(r);
+          continue;
+        }
+        // If containing the map
+        if (r.from <= source_from && r.to >= source_to) {
+          // Slice into 3
+          if (r.from < source_from) {
+            sliced_ranges.push_back({r.from, source_from - 1});
           }
+          sliced_ranges.push_back({source_from, source_to});
+          if (r.to > source_to) {
+            sliced_ranges.push_back({source_to + 1, r.to});
+          }
+          continue;
+        }
+        // If overlaps the map from the left
+        if (r.from < source_from && r.to >= source_from && r.to <= source_to) {
+          sliced_ranges.push_back({r.from, source_from - 1});
+          sliced_ranges.push_back({source_from, r.to});
+          continue;
+        }
+        // If overlaps the map from the right
+        if (r.to > source_to && r.from <= source_to && r.from >= source_from) {
+          sliced_ranges.push_back({r.from, source_to});
+          sliced_ranges.push_back({source_to + 1, r.to});
+          continue;
         }
       }
 
-      if (min_loc == -1 || current < min_loc) {
-        min_loc = current;
-
-        // Trim maps
-        trim_maps(maps, seed, end);
-      }
+      input_ranges = sliced_ranges;
     }
+
+    // map to next layer input
+    for (range &r : input_ranges) {
+      for (mapping &m : map_vec) {
+        if (m.includes(r.from)) {
+          r.from = m.map(r.from);
+          r.to = m.map(r.to);
+          goto out;
+        }
+      }
+    out:;
+    }
+  }
+
+  long min_loc = -1;
+  for (range &r : input_ranges) {
+    if (min_loc == -1 || r.from < min_loc) {
+      min_loc = r.from;
+    }
+    // std::cout << r.from << " " << r.to << std::endl;
   }
 
   std::cout << min_loc << std::endl;
