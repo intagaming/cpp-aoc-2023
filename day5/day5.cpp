@@ -189,6 +189,13 @@ void part2() {
     map_vec.push_back({nums[0], nums[1], nums[2]});
   }
 
+  // Goals: Break the seeds down into groups, then only evaluate the first item
+  // in each group.
+  //
+  // Because a group is always a chunk of numbers being mapped around, the
+  // first element in a group will always result in the smallest location in
+  // the end.
+
   // For each layer, slice input into pieces and map them to next layer
   for (std::vector<mapping> &map_vec : maps) {
     for (mapping m : map_vec) {
